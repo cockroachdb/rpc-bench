@@ -58,16 +58,11 @@ func randString(n int) string {
 	return string(bytes.Repeat(randLetters, n/len(randLetters)))
 }
 
-func newListener(tb testing.TB) net.Listener {
+func benchmarkEcho(b *testing.B, size int, accept func(net.Listener) error, parallelRequest func(*testing.PB, net.Addr, string)) {
 	listener, err := net.Listen(*echoNet, *echoAddr)
 	if err != nil {
-		tb.Fatal(err)
+		b.Fatal(err)
 	}
-	return listener
-}
-
-func benchmarkEcho(b *testing.B, size int, listenAndServe func(net.Listener) error, parallelRequest func(*testing.PB, net.Addr, string)) {
-	listener := newListener(b)
 	defer func() {
 		if err := listener.Close(); err != nil {
 			b.Fatal(err)
@@ -75,7 +70,7 @@ func benchmarkEcho(b *testing.B, size int, listenAndServe func(net.Listener) err
 	}()
 
 	go func() {
-		if err := listenAndServe(listener); err != nil && !strings.HasSuffix(err.Error(), "use of closed network connection") {
+		if err := accept(listener); err != nil && !strings.HasSuffix(err.Error(), "use of closed network connection") {
 			b.Fatal(err)
 		}
 	}()
