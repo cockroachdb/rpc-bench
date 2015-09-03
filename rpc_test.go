@@ -103,7 +103,7 @@ func listenAndServeGRPC(listener net.Listener) error {
 
 func benchmarkEchoGRPC(b *testing.B, size int) {
 	benchmarkEcho(b, size, listenAndServeGRPC, func(pb *testing.PB, addr net.Addr, echoMsg string) {
-		conn, err := grpc.Dial(addr.String())
+		conn, err := grpc.Dial(addr.String(), grpc.WithInsecure())
 		if err != nil {
 			b.Fatal(err)
 		}
