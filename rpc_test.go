@@ -106,7 +106,7 @@ func benchmarkEchoGRPC(b *testing.B, size int) {
 			b.Fatal(err)
 		}
 		defer func() {
-			if err = conn.Close(); err != nil {
+			if err := conn.Close(); err != nil {
 				b.Fatal(err)
 			}
 		}()
@@ -158,7 +158,7 @@ func benchmarkEchoGobRPC(b *testing.B, size int) {
 			b.Fatal(err)
 		}
 		defer func() {
-			if err = client.Close(); err != nil {
+			if err := client.Close(); err != nil {
 				b.Fatal(err)
 			}
 		}()
@@ -205,7 +205,7 @@ func benchmarkEchoProtoRPC(b *testing.B, size int) {
 		}
 		client := rpc.NewClientWithCodec(NewClientCodec(conn))
 		defer func() {
-			if err = client.Close(); err != nil {
+			if err := client.Close(); err != nil {
 				b.Fatal(err)
 			}
 		}()
@@ -242,12 +242,12 @@ func listenAndServeProtoHTTP(listener net.Listener) error {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err = r.Body.Close(); err != nil {
+		if err := r.Body.Close(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		args := &EchoRequest{}
-		if err = proto.Unmarshal(reqBody, args); err != nil {
+		if err := proto.Unmarshal(reqBody, args); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -280,7 +280,7 @@ func benchmarkEchoProtoHTTP(b *testing.B, size int) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			if err = resp.Body.Close(); err != nil {
+			if err := resp.Body.Close(); err != nil {
 				b.Fatal(err)
 			}
 			reply := &EchoResponse{}
