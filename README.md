@@ -12,7 +12,7 @@ results (2015-09-11)
 Run with `go test -cpu 1,2,4 -timeout 5s -bench .`
 
 | Bench                   | Iters | Speed         | Troughput   |
-|-------------------------|-------|---------------|-------------|
+|-------------------------|------:|--------------:|------------:|
 |BenchmarkGRPC1K          | 20000 |   95072 ns/op |  21.54 MB/s |
 |BenchmarkGRPC1K-2        | 20000 |   76156 ns/op |  26.89 MB/s |
 |BenchmarkGRPC1K-4        | 30000 |   59960 ns/op |  34.16 MB/s |
