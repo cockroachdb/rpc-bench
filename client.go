@@ -30,9 +30,7 @@ import (
 	"net/rpc"
 	"time"
 
-	"github.com/golang/protobuf/proto"
-
-	"github.com/cockroachdb/rpc-bench/protos/wire"
+	"github.com/gogo/protobuf/proto"
 )
 
 type clientCodec struct {
@@ -43,8 +41,8 @@ type clientCodec struct {
 	// temporary work space
 	reqBodyBuf   bytes.Buffer
 	reqHeaderBuf bytes.Buffer
-	reqHeader    wire.RequestHeader
-	respHeader   wire.ResponseHeader
+	reqHeader    RequestHeader
+	respHeader   ResponseHeader
 }
 
 // NewClientCodec returns a new rpc.ClientCodec using Protobuf-RPC on conn.
@@ -119,7 +117,7 @@ func (c *clientCodec) writeRequest(r *rpc.Request, request proto.Message) error 
 
 	// generate header
 	header := &c.reqHeader
-	*header = wire.RequestHeader{
+	*header = RequestHeader{
 		Id:               r.Seq,
 		Compression:      compressionType,
 		UncompressedSize: uint32(len(pbRequest)),
@@ -146,11 +144,11 @@ func (c *clientCodec) writeRequest(r *rpc.Request, request proto.Message) error 
 	return c.sendFrame(pbRequest)
 }
 
-func (c *clientCodec) readResponseHeader(header *wire.ResponseHeader) error {
+func (c *clientCodec) readResponseHeader(header *ResponseHeader) error {
 	return c.recvProto(header, 0, protoUnmarshal)
 }
 
-func (c *clientCodec) readResponseBody(header *wire.ResponseHeader,
+func (c *clientCodec) readResponseBody(header *ResponseHeader,
 	response proto.Message) error {
 	return c.recvProto(response, header.UncompressedSize, decompressors[header.Compression])
 }

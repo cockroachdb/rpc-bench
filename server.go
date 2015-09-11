@@ -28,9 +28,7 @@ import (
 	"io"
 	"net/rpc"
 
-	"github.com/golang/protobuf/proto"
-
-	"github.com/cockroachdb/rpc-bench/protos/wire"
+	"github.com/gogo/protobuf/proto"
 )
 
 type serverCodec struct {
@@ -41,8 +39,8 @@ type serverCodec struct {
 	// temporary work space
 	respBodyBuf   bytes.Buffer
 	respHeaderBuf bytes.Buffer
-	respHeader    wire.ResponseHeader
-	reqHeader     wire.RequestHeader
+	respHeader    ResponseHeader
+	reqHeader     RequestHeader
 }
 
 // NewServerCodec returns a serverCodec that communicates with the ClientCodec
@@ -139,7 +137,7 @@ func (c *serverCodec) writeResponse(r *rpc.Response, response proto.Message) err
 
 	// generate header
 	header := &c.respHeader
-	*header = wire.ResponseHeader{
+	*header = ResponseHeader{
 		Id: r.Seq,
 		// The net/rpc interface asks for the Response.ServiceMethod to be
 		// returned from the server, but it is never used.
@@ -162,19 +160,19 @@ func (c *serverCodec) writeResponse(r *rpc.Response, response proto.Message) err
 	}
 
 	// send body (end)
-	// if compressionType == wire.CompressionType_SNAPPY {
+	// if compressionType == CompressionType_SNAPPY {
 	// 	return snappyEncode(pbResponse, c.sendFrame)
-	// } else if compressionType == wire.CompressionType_LZ4 {
+	// } else if compressionType == CompressionType_LZ4 {
 	// 	return lz4Encode(pbResponse, c.sendFrame)
 	// }
 	return c.sendFrame(pbResponse)
 }
 
-func (c *serverCodec) readRequestHeader(r *bufio.Reader, header *wire.RequestHeader) error {
+func (c *serverCodec) readRequestHeader(r *bufio.Reader, header *RequestHeader) error {
 	return c.recvProto(header, 0, protoUnmarshal)
 }
 
-func (c *serverCodec) readRequestBody(r *bufio.Reader, header *wire.RequestHeader,
+func (c *serverCodec) readRequestBody(r *bufio.Reader, header *RequestHeader,
 	request proto.Message) error {
 	return c.recvProto(request, header.UncompressedSize, decompressors[header.Compression])
 }

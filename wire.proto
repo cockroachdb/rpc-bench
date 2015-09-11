@@ -42,7 +42,7 @@
 //	Recv Response: recvFrame(conn, body)
 syntax = "proto3";
 
-package wire;
+package rpcbench;
 
 enum CompressionType {
   NONE = 0;

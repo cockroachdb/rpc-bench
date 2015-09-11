@@ -27,22 +27,20 @@ import (
 	"io"
 	"net"
 
-	"github.com/golang/protobuf/proto"
-
-	"github.com/cockroachdb/rpc-bench/protos/wire"
+	"github.com/gogo/protobuf/proto"
 )
 
 // LZ4 benchmarks slightly faster than Snappy for pure-RPC benchmarks,
 // but slightly slower than Snappy on higher level benchmarks like the
 // ones for the Cockroach client.
-const compressionType = wire.CompressionType_NONE
+const compressionType = CompressionType_NONE
 
 type decompressFunc func(src []byte, uncompressedSize uint32, m proto.Message) error
 
 var decompressors = [...]decompressFunc{
-	wire.CompressionType_NONE: protoUnmarshal,
-	// wire.CompressionType_SNAPPY: snappyDecode,
-	// wire.CompressionType_LZ4:    lz4Decode,
+	CompressionType_NONE: protoUnmarshal,
+	// CompressionType_SNAPPY: snappyDecode,
+	// CompressionType_LZ4:    lz4Decode,
 }
 
 type baseConn struct {

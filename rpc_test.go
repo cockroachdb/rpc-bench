@@ -28,11 +28,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/golang/protobuf/proto"
+	"github.com/gogo/protobuf/proto"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-
-	"github.com/cockroachdb/rpc-bench/protos"
 )
 
 var echoNet = flag.String("echo-net", "tcp",
@@ -89,15 +87,15 @@ func benchmarkEcho(b *testing.B, size int, accept func(net.Listener) error, para
 
 type echoServer struct{}
 
-func (e *echoServer) Echo(ctx context.Context, req *protos.EchoRequest) (*protos.EchoResponse, error) {
-	return &protos.EchoResponse{Msg: req.Msg}, nil
+func (e *echoServer) Echo(ctx context.Context, req *EchoRequest) (*EchoResponse, error) {
+	return &EchoResponse{Msg: req.Msg}, nil
 }
 
 type benchGRPC struct{}
 
 func listenAndServeGRPC(listener net.Listener) error {
 	grpcServer := grpc.NewServer()
-	protos.RegisterEchoServer(grpcServer, &echoServer{})
+	RegisterEchoServer(grpcServer, &echoServer{})
 	return grpcServer.Serve(listener)
 }
 
@@ -112,10 +110,10 @@ func benchmarkEchoGRPC(b *testing.B, size int) {
 				b.Fatal(err)
 			}
 		}()
-		client := protos.NewEchoClient(conn)
+		client := NewEchoClient(conn)
 
 		for pb.Next() {
-			if _, err := client.Echo(context.Background(), &protos.EchoRequest{Msg: echoMsg}); err != nil {
+			if _, err := client.Echo(context.Background(), &EchoRequest{Msg: echoMsg}); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -134,7 +132,7 @@ func BenchmarkGRPC64K(b *testing.B) {
 
 type Echo struct{}
 
-func (t *Echo) Echo(args *protos.EchoRequest, reply *protos.EchoResponse) error {
+func (t *Echo) Echo(args *EchoRequest, reply *EchoResponse) error {
 	reply.Msg = args.Msg
 	return nil
 }
@@ -166,8 +164,8 @@ func benchmarkEchoGobRPC(b *testing.B, size int) {
 		}()
 
 		for pb.Next() {
-			args := &protos.EchoRequest{Msg: echoMsg}
-			reply := &protos.EchoResponse{}
+			args := &EchoRequest{Msg: echoMsg}
+			reply := &EchoResponse{}
 			if err := client.Call("Echo.Echo", args, reply); err != nil {
 				b.Fatal(err)
 			}
@@ -213,8 +211,8 @@ func benchmarkEchoProtoRPC(b *testing.B, size int) {
 		}()
 
 		for pb.Next() {
-			args := &protos.EchoRequest{Msg: echoMsg}
-			reply := &protos.EchoResponse{}
+			args := &EchoRequest{Msg: echoMsg}
+			reply := &EchoResponse{}
 			if err := client.Call("Echo.Echo", args, reply); err != nil {
 				b.Fatal(err)
 			}
@@ -248,12 +246,12 @@ func listenAndServeProtoHTTP(listener net.Listener) error {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		args := &protos.EchoRequest{}
+		args := &EchoRequest{}
 		if err = proto.Unmarshal(reqBody, args); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		reply := &protos.EchoResponse{Msg: args.Msg}
+		reply := &EchoResponse{Msg: args.Msg}
 		respBody, err := proto.Marshal(reply)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -269,7 +267,7 @@ func benchmarkEchoProtoHTTP(b *testing.B, size int) {
 		url := fmt.Sprintf("http://%s", addr)
 
 		for pb.Next() {
-			args := &protos.EchoRequest{Msg: echoMsg}
+			args := &EchoRequest{Msg: echoMsg}
 			reqBody, err := proto.Marshal(args)
 			if err != nil {
 				b.Fatal(err)
@@ -285,7 +283,7 @@ func benchmarkEchoProtoHTTP(b *testing.B, size int) {
 			if err = resp.Body.Close(); err != nil {
 				b.Fatal(err)
 			}
-			reply := &protos.EchoResponse{}
+			reply := &EchoResponse{}
 			if err := proto.Unmarshal(respBody, reply); err != nil {
 				b.Fatal(err)
 			}

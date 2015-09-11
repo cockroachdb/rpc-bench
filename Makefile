@@ -18,4 +18,4 @@
 PROTOS := $(sort $(wildcard *.proto))
 
 all:
-	protoc --proto_path=. --go_out=plugins=grpc:. $(PROTOS)
+	protoc --proto_path=. --gogofaster_out=plugins=grpc:. $(PROTOS)
