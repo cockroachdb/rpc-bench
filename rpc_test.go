@@ -35,7 +35,7 @@ import (
 
 var echoNet = flag.String("echo-net", "tcp",
 	"network to bind for the echo server used in benchmarks")
-var echoAddr = flag.String("echo-addr", "127.0.0.1:0",
+var echoAddr = flag.String("echo-addr", ":0",
 	"host:port to bind for the echo server used in benchmarks")
 var runEchoServer = flag.Bool("start-echo-server", true,
 	"start the echo server; false to connect to an already running server")
