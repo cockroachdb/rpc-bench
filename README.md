@@ -11,7 +11,7 @@ results (2015-09-11)
 ====================
 Run with `go test -benchmem -benchtime 5s -bench .`
 
-| Bench        | Iters  | Speed        | Troughput   | Allocations | Allocations   |
+| Bench        | Iters  | Speed        | Throughput  | Allocations | Allocations   |
 |--------------|-------:|-------------:|------------:|------------:|--------------:|
 | GRPC1K       | 200000 |  58742 ns/op |  34.86 MB/s |  16226 B/op |  89 allocs/op |
 | GRPC64K      |  10000 | 582779 ns/op | 224.91 MB/s | 711277 B/op | 153 allocs/op |
