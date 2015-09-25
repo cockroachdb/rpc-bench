@@ -6,18 +6,21 @@ Currently covered:
 - [net/rpc](http://godoc.org/net/rpc)
 - [net/rpc](http://godoc.org/net/rpc) + [protobuf](https://github.com/golang/protobuf) codec
 - [net/http](http://godoc.org/net/http) using protobufs on the wire
+- [golang.org/x/net/http2](https://godoc.org/golang.org/x/net/http2) using protobufs on the wire
 
 results (2015-09-25)
 ====================
 Run with `go test -benchmem -benchtime 5s -bench .`
 
-| Bench        | Iters  | Speed        | Throughput  | Allocations | Allocations   |
-|--------------|-------:|-------------:|------------:|------------:|--------------:|
-| GRPC1K       | 100000 |  88730 ns/op |  23.08 MB/s |  16229 B/op |  89 allocs/op |
-| GRPC64K      |  10000 | 806472 ns/op | 162.52 MB/s | 711208 B/op | 152 allocs/op |
-| GobRPC1K     | 200000 |  40529 ns/op |  50.53 MB/s |   4488 B/op |  17 allocs/op |
-| GobRPC64K    |  30000 | 265331 ns/op | 493.99 MB/s | 262563 B/op |  17 allocs/op |
-| ProtoRPC1K   | 300000 |  30936 ns/op |  66.20 MB/s |   2418 B/op |  11 allocs/op |
-| ProtoRPC64K  |  20000 | 272812 ns/op | 480.45 MB/s | 278883 B/op |  13 allocs/op |
-| ProtoHTTP1K  | 200000 |  62290 ns/op |  32.88 MB/s |  14528 B/op |  81 allocs/op |
-| ProtoHTTP64K |  10000 | 765288 ns/op | 171.27 MB/s | 812307 B/op | 108 allocs/op |
+| Bench          | Iters  | Speed         | Throughput | Allocations | Allocations   |
+|----------------|-------:|--------------:|-----------:|------------:|--------------:|
+| GRPC_1K        | 100000 |   92573 ns/op | 22.12 MB/s |  16661 B/op | 114 allocs/op |
+| GRPC_64K       |   3000 | 2044461 ns/op | 64.11 MB/s | 714326 B/op | 349 allocs/op |
+| GobRPC_1K      | 100000 |   72621 ns/op | 28.20 MB/s |   4744 B/op |  33 allocs/op |
+| GobRPC_64K     |   5000 | 1873094 ns/op | 69.98 MB/s | 263934 B/op |  97 allocs/op |
+| ProtoRPC_1K    | 100000 |   66955 ns/op | 30.59 MB/s |   2632 B/op |  27 allocs/op |
+| ProtoRPC_64K   |   5000 | 1564185 ns/op | 83.80 MB/s | 280220 B/op |  93 allocs/op |
+| ProtoHTTP1_1K  |  20000 |  383342 ns/op |  5.34 MB/s |  55044 B/op | 416 allocs/op |
+| ProtoHTTP1_64K |   3000 | 1932455 ns/op | 67.83 MB/s | 827150 B/op | 377 allocs/op |
+
+golang.org/x/net/http2 currently doesn't implement sending requests with a body, so those benchmarks fail.
