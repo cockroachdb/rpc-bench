@@ -19,7 +19,6 @@ package rpcbench
 
 import (
 	"bytes"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -33,31 +32,13 @@ import (
 	"google.golang.org/grpc"
 )
 
-var echoNet = flag.String("echo-net", "tcp",
-	"network to bind for the echo server used in benchmarks")
-var echoAddr = flag.String("echo-addr", ":0",
-	"host:port to bind for the echo server used in benchmarks")
-var runEchoServer = flag.Bool("start-echo-server", true,
-	"start the echo server; false to connect to an already running server")
-var onlyEchoServer = flag.Bool("only-echo-server", false,
-	"only run the echo server; looping forever")
-
-// To run these benchmarks between machines, on machine 1 start the
-// echo server:
-//
-//   go test -run= -bench=BenchmarkEchoGobRPC -echoAddr :9999 -only-echo-server
-//
-// On machine 2:
-//
-//   go test -run= -bench=BenchmarkEchoGobRPC -echoAddr <machine-1-ip>:9999 -start-echo-server=false
-
 func randString(n int) string {
 	var randLetters = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#$")
 	return string(bytes.Repeat(randLetters, n/len(randLetters)))
 }
 
 func benchmarkEcho(b *testing.B, size int, accept func(net.Listener) error, setup func(net.Addr), teardown func(), parallelRequest func(*testing.PB, string)) {
-	listener, err := net.Listen(*echoNet, *echoAddr)
+	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		b.Fatal(err)
 	}
