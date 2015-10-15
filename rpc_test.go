@@ -361,6 +361,7 @@ func BenchmarkProtoHTTP1_64K(b *testing.B) {
 }
 
 func init() {
+	grpc.EnableTracing = false
 	devNull, err := os.Open(os.DevNull)
 	if err != nil {
 		log.Fatal(err)
