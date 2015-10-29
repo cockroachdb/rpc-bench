@@ -372,7 +372,7 @@ func init() {
 
 func benchmarkEchoProtoHTTP2(b *testing.B, size int) {
 	benchmarkEchoProtoHTTP(b, size, listenAndServeProtoHTTP, &http2.Transport{
-		InsecureTLSDial: true,
+		TLSClientConfig: clientTLSConfig,
 	})
 }
 
