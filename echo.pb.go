@@ -49,6 +49,11 @@ func (m *EchoResponse) Reset()         { *m = EchoResponse{} }
 func (m *EchoResponse) String() string { return proto.CompactTextString(m) }
 func (*EchoResponse) ProtoMessage()    {}
 
+func init() {
+	proto.RegisterType((*EchoRequest)(nil), "rpcbench.EchoRequest")
+	proto.RegisterType((*EchoResponse)(nil), "rpcbench.EchoResponse")
+}
+
 // Reference imports to suppress errors if they are not otherwise used.
 var _ context.Context
 var _ grpc.ClientConn

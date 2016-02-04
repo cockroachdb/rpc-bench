@@ -57,6 +57,8 @@ func (m *ResponseHeader) String() string { return proto.CompactTextString(m) }
 func (*ResponseHeader) ProtoMessage()    {}
 
 func init() {
+	proto.RegisterType((*RequestHeader)(nil), "rpcbench.RequestHeader")
+	proto.RegisterType((*ResponseHeader)(nil), "rpcbench.ResponseHeader")
 	proto.RegisterEnum("rpcbench.CompressionType", CompressionType_name, CompressionType_value)
 }
 func (m *RequestHeader) Marshal() (data []byte, err error) {
