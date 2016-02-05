@@ -54,7 +54,7 @@ func randString(n int) string {
 	return string(b)
 }
 
-func benchmarkEcho(b *testing.B, size int, accept func(net.Listener, *tls.Config) error, setup func(net.Addr), teardown func(), runRequest func(string) string) {
+func benchmarkEcho(b *testing.B, size int, accept func(net.Listener, *tls.Config) error, setup func(net.Addr), teardown func(), setupParallel func() func(string) string) {
 	cert, err := tls.LoadX509KeyPair("server.crt", "server.key")
 	if err != nil {
 		b.Fatal(err)
@@ -93,6 +93,8 @@ func benchmarkEcho(b *testing.B, size int, accept func(net.Listener, *tls.Config
 	b.ResetTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
+		runRequest := setupParallel()
+
 		for pb.Next() {
 			if a, e := runRequest(echoMsg), echoMsg; a != e {
 				b.Fatalf("expected:\n%q\ngot:\n%q", e, a)
@@ -115,13 +117,28 @@ func (e *echoServer) Echo(ctx context.Context, req *EchoRequest) (*EchoResponse,
 	return &EchoResponse{Msg: req.Msg}, nil
 }
 
-func benchmarkEchoGRPC(b *testing.B, listeAndServeFn func(net.Listener, *tls.Config) error, size int) {
+func (e *echoServer) StreamEcho(s Echo_StreamEchoServer) error {
+	for {
+		if s.Context().Err() != nil {
+			return nil
+		}
+		req, err := s.Recv()
+		if err != nil {
+			return err
+		}
+		if err := s.Send(&EchoResponse{Msg: req.Msg}); err != nil {
+			return err
+		}
+	}
+}
+
+func benchmarkEchoGRPC(b *testing.B, listenAndServeFn func(net.Listener, *tls.Config) error, size int) {
 	var conn *grpc.ClientConn
 	var client EchoClient
-	benchmarkEcho(b, size, listeAndServeFn,
+	benchmarkEcho(b, size, listenAndServeFn,
 		func(addr net.Addr) {
 			var err error
-			conn, err = grpc.Dial(addr.String(), grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)))
+			conn, err = grpc.Dial(addr.String(), grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)), grpc.WithBlock())
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -132,12 +149,50 @@ func benchmarkEchoGRPC(b *testing.B, listeAndServeFn func(net.Listener, *tls.Con
 				b.Fatal(err)
 			}
 		},
-		func(echoMsg string) string {
-			resp, err := client.Echo(context.Background(), &EchoRequest{Msg: echoMsg})
+		func() func(string) string {
+			return func(echoMsg string) string {
+				resp, err := client.Echo(context.Background(), &EchoRequest{Msg: echoMsg})
+				if err != nil {
+					b.Fatal(err)
+				}
+				return resp.Msg
+			}
+		},
+	)
+}
+
+func benchmarkEchoStreamGRPC(b *testing.B, listenAndServeFn func(net.Listener, *tls.Config) error, size int) {
+	var conn *grpc.ClientConn
+	var client EchoClient
+	benchmarkEcho(b, size, listenAndServeFn,
+		func(addr net.Addr) {
+			var err error
+			conn, err = grpc.Dial(addr.String(), grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)), grpc.WithBlock())
 			if err != nil {
 				b.Fatal(err)
 			}
-			return resp.Msg
+			client = NewEchoClient(conn)
+		},
+		func() {
+			if err := conn.Close(); err != nil {
+				b.Fatal(err)
+			}
+		},
+		func() func(string) string {
+			stream, err := client.StreamEcho(context.Background())
+			if err != nil {
+				b.Fatal(err)
+			}
+			return func(echoMsg string) string {
+				if err := stream.Send(&EchoRequest{Msg: echoMsg}); err != nil {
+					b.Fatal(err)
+				}
+				resp, err := stream.Recv()
+				if err != nil {
+					b.Fatal(err)
+				}
+				return resp.Msg
+			}
 		},
 	)
 }
@@ -158,6 +213,14 @@ func BenchmarkGRPCServe_64K(b *testing.B) {
 	benchmarkEchoGRPC(b, listenAndServeGRPCServe, 64<<10)
 }
 
+func BenchmarkGRPCServe_Stream_1K(b *testing.B) {
+	benchmarkEchoStreamGRPC(b, listenAndServeGRPCServe, 1<<10)
+}
+
+func BenchmarkGRPCServe_Stream_64k(b *testing.B) {
+	benchmarkEchoStreamGRPC(b, listenAndServeGRPCServe, 64<<10)
+}
+
 // ServeHTTP
 
 func listenAndServeGRPCServeHTTP(listener net.Listener, tlsConfig *tls.Config) error {
@@ -167,6 +230,9 @@ func listenAndServeGRPCServeHTTP(listener net.Listener, tlsConfig *tls.Config) e
 		TLSConfig: tlsConfig,
 		Handler:   grpcServer,
 	}
+
+	http2.ConfigureServer(&srv, nil)
+
 	return srv.Serve(listener)
 }
 
@@ -176,6 +242,14 @@ func BenchmarkGRPCServeHTTP_1K(b *testing.B) {
 
 func BenchmarkGRPCServeHTTP_64K(b *testing.B) {
 	benchmarkEchoGRPC(b, listenAndServeGRPCServeHTTP, 64<<10)
+}
+
+func BenchmarkGRPCServeHTTP_Stream_1K(b *testing.B) {
+	benchmarkEchoStreamGRPC(b, listenAndServeGRPCServeHTTP, 1<<10)
+}
+
+func BenchmarkGRPCServeHTTP_Stream_64k(b *testing.B) {
+	benchmarkEchoStreamGRPC(b, listenAndServeGRPCServeHTTP, 64<<10)
 }
 
 // gob-rpc
@@ -220,13 +294,15 @@ func benchmarkEchoGobRPC(b *testing.B, size int) {
 				b.Fatal(err)
 			}
 		},
-		func(echoMsg string) string {
-			args := EchoRequest{Msg: echoMsg}
-			reply := EchoResponse{}
-			if err := client.Call("Echo.Echo", &args, &reply); err != nil {
-				b.Fatal(err)
+		func() func(string) string {
+			return func(echoMsg string) string {
+				args := EchoRequest{Msg: echoMsg}
+				reply := EchoResponse{}
+				if err := client.Call("Echo.Echo", &args, &reply); err != nil {
+					b.Fatal(err)
+				}
+				return reply.Msg
 			}
-			return reply.Msg
 		},
 	)
 }
@@ -270,13 +346,15 @@ func benchmarkEchoProtoRPC(b *testing.B, size int) {
 				b.Fatal(err)
 			}
 		},
-		func(echoMsg string) string {
-			args := EchoRequest{Msg: echoMsg}
-			reply := EchoResponse{}
-			if err := client.Call("Echo.Echo", &args, &reply); err != nil {
-				b.Fatal(err)
+		func() func(string) string {
+			return func(echoMsg string) string {
+				args := EchoRequest{Msg: echoMsg}
+				reply := EchoResponse{}
+				if err := client.Call("Echo.Echo", &args, &reply); err != nil {
+					b.Fatal(err)
+				}
+				return reply.Msg
 			}
-			return reply.Msg
 		},
 	)
 }
@@ -337,33 +415,35 @@ func benchmarkEchoProtoHTTP(b *testing.B, size int, accept func(net.Listener, *t
 			url = fmt.Sprintf("https://%s", addr)
 		},
 		nil,
-		func(echoMsg string) string {
-			args := EchoRequest{Msg: echoMsg}
-			reqBody, err := proto.Marshal(&args)
-			if err != nil {
-				b.Fatal(err)
+		func() func(string) string {
+			return func(echoMsg string) string {
+				args := EchoRequest{Msg: echoMsg}
+				reqBody, err := proto.Marshal(&args)
+				if err != nil {
+					b.Fatal(err)
+				}
+				req, err := http.NewRequest("POST", url, bytes.NewReader(reqBody))
+				if err != nil {
+					b.Fatal(err)
+				}
+				req.Header.Set("Content-Type", xProtobuf)
+				resp, err := roundTripper.RoundTrip(req)
+				if err != nil {
+					b.Fatal(err)
+				}
+				respBody, err := ioutil.ReadAll(resp.Body)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if err := resp.Body.Close(); err != nil {
+					b.Fatal(err)
+				}
+				reply := EchoResponse{}
+				if err := proto.Unmarshal(respBody, &reply); err != nil {
+					b.Fatal(err)
+				}
+				return reply.Msg
 			}
-			req, err := http.NewRequest("POST", url, bytes.NewReader(reqBody))
-			if err != nil {
-				b.Fatal(err)
-			}
-			req.Header.Set("Content-Type", xProtobuf)
-			resp, err := roundTripper.RoundTrip(req)
-			if err != nil {
-				b.Fatal(err)
-			}
-			respBody, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				b.Fatal(err)
-			}
-			if err := resp.Body.Close(); err != nil {
-				b.Fatal(err)
-			}
-			reply := EchoResponse{}
-			if err := proto.Unmarshal(respBody, &reply); err != nil {
-				b.Fatal(err)
-			}
-			return reply.Msg
 		},
 	)
 }
