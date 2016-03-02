@@ -113,18 +113,10 @@ func (e *echoServer) Echo(ctx context.Context, req *EchoRequest) (*EchoResponse,
 	return &EchoResponse{Msg: req.Msg}, nil
 }
 
-type benchGRPC struct{}
-
-func listenAndServeGRPC(listener net.Listener, _ *tls.Config) error {
-	grpcServer := grpc.NewServer()
-	RegisterEchoServer(grpcServer, &echoServer{})
-	return grpcServer.Serve(listener)
-}
-
-func benchmarkEchoGRPC(b *testing.B, size int) {
+func benchmarkEchoGRPC(b *testing.B, listeAndServeFn func(net.Listener, *tls.Config) error, size int) {
 	var conn *grpc.ClientConn
 	var client EchoClient
-	benchmarkEcho(b, size, listenAndServeGRPC,
+	benchmarkEcho(b, size, listeAndServeFn,
 		func(addr net.Addr) {
 			var err error
 			conn, err = grpc.Dial(addr.String(), grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)))
@@ -148,12 +140,40 @@ func benchmarkEchoGRPC(b *testing.B, size int) {
 	)
 }
 
-func BenchmarkGRPC_1K(b *testing.B) {
-	benchmarkEchoGRPC(b, 1<<10)
+// Serve
+
+func listenAndServeGRPCServe(listener net.Listener, _ *tls.Config) error {
+	grpcServer := grpc.NewServer()
+	RegisterEchoServer(grpcServer, &echoServer{})
+	return grpcServer.Serve(listener)
 }
 
-func BenchmarkGRPC_64K(b *testing.B) {
-	benchmarkEchoGRPC(b, 64<<10)
+func BenchmarkGRPCServe_1K(b *testing.B) {
+	benchmarkEchoGRPC(b, listenAndServeGRPCServe, 1<<10)
+}
+
+func BenchmarkGRPCServe_64K(b *testing.B) {
+	benchmarkEchoGRPC(b, listenAndServeGRPCServe, 64<<10)
+}
+
+// ServeHTTP
+
+func listenAndServeGRPCServeHTTP(listener net.Listener, tlsConfig *tls.Config) error {
+	grpcServer := grpc.NewServer()
+	RegisterEchoServer(grpcServer, &echoServer{})
+	srv := http.Server{
+		TLSConfig: tlsConfig,
+		Handler:   grpcServer,
+	}
+	return srv.Serve(listener)
+}
+
+func BenchmarkGRPCServeHTTP_1K(b *testing.B) {
+	benchmarkEchoGRPC(b, listenAndServeGRPCServeHTTP, 1<<10)
+}
+
+func BenchmarkGRPCServeHTTP_64K(b *testing.B) {
+	benchmarkEchoGRPC(b, listenAndServeGRPCServeHTTP, 64<<10)
 }
 
 // gob-rpc
