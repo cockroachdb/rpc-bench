@@ -22,12 +22,10 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"math/rand"
 	"net"
 	"net/http"
 	"net/rpc"
-	"os"
 	"strings"
 	"testing"
 
@@ -37,6 +35,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
+
+func init() {
+	grpc.EnableTracing = false
+}
 
 var clientTLSConfig = &tls.Config{
 	InsecureSkipVerify: true,
@@ -378,16 +380,6 @@ func BenchmarkProtoHTTP1_1K(b *testing.B) {
 
 func BenchmarkProtoHTTP1_64K(b *testing.B) {
 	benchmarkEchoProtoHTTP1(b, 64<<10)
-}
-
-func init() {
-	grpc.EnableTracing = false
-	devNull, err := os.Open(os.DevNull)
-	if err != nil {
-		log.Fatal(err)
-	}
-	// http2 logs a lot of junk.
-	log.SetOutput(devNull)
 }
 
 func benchmarkEchoProtoHTTP2(b *testing.B, size int) {
