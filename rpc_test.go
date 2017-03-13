@@ -22,12 +22,10 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"math/rand"
 	"net"
 	"net/http"
 	"net/rpc"
-	"os"
 	"strings"
 	"testing"
 
@@ -37,6 +35,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
+
+func init() {
+	grpc.EnableTracing = false
+}
 
 var clientTLSConfig = &tls.Config{
 	InsecureSkipVerify: true,
@@ -52,7 +54,7 @@ func randString(n int) string {
 	return string(b)
 }
 
-func benchmarkEcho(b *testing.B, size int, accept func(net.Listener, *tls.Config) error, setup func(net.Addr), teardown func(), runRequest func(string) string) {
+func benchmarkEcho(b *testing.B, size int, accept func(net.Listener, *tls.Config) error, setup func(net.Addr), teardown func(), setupParallel func() func(string) string) {
 	cert, err := tls.LoadX509KeyPair("server.crt", "server.key")
 	if err != nil {
 		b.Fatal(err)
@@ -75,10 +77,10 @@ func benchmarkEcho(b *testing.B, size int, accept func(net.Listener, *tls.Config
 		}
 	}()
 
+	errChan := make(chan error)
 	go func() {
-		if err := accept(listener, tlsConfig); err != nil && !strings.HasSuffix(err.Error(), "use of closed network connection") {
-			b.Fatal(err)
-		}
+		errChan <- accept(listener, tlsConfig)
+		close(errChan)
 	}()
 
 	if setup != nil {
@@ -91,6 +93,8 @@ func benchmarkEcho(b *testing.B, size int, accept func(net.Listener, *tls.Config
 	b.ResetTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
+		runRequest := setupParallel()
+
 		for pb.Next() {
 			if a, e := runRequest(echoMsg), echoMsg; a != e {
 				b.Fatalf("expected:\n%q\ngot:\n%q", e, a)
@@ -103,6 +107,12 @@ func benchmarkEcho(b *testing.B, size int, accept func(net.Listener, *tls.Config
 	if teardown != nil {
 		teardown()
 	}
+
+	for err := range errChan {
+		if err != nil && !strings.HasSuffix(err.Error(), "use of closed network connection") {
+			b.Fatal(err)
+		}
+	}
 }
 
 // grpc
@@ -113,13 +123,28 @@ func (e *echoServer) Echo(ctx context.Context, req *EchoRequest) (*EchoResponse,
 	return &EchoResponse{Msg: req.Msg}, nil
 }
 
-func benchmarkEchoGRPC(b *testing.B, listeAndServeFn func(net.Listener, *tls.Config) error, size int) {
+func (e *echoServer) StreamEcho(s Echo_StreamEchoServer) error {
+	for {
+		if s.Context().Err() != nil {
+			return nil
+		}
+		req, err := s.Recv()
+		if err != nil {
+			return err
+		}
+		if err := s.Send(&EchoResponse{Msg: req.Msg}); err != nil {
+			return err
+		}
+	}
+}
+
+func benchmarkEchoGRPC(b *testing.B, listenAndServeFn func(net.Listener, *tls.Config) error, size int) {
 	var conn *grpc.ClientConn
 	var client EchoClient
-	benchmarkEcho(b, size, listeAndServeFn,
+	benchmarkEcho(b, size, listenAndServeFn,
 		func(addr net.Addr) {
 			var err error
-			conn, err = grpc.Dial(addr.String(), grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)))
+			conn, err = grpc.Dial(addr.String(), grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)), grpc.WithBlock())
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -130,12 +155,50 @@ func benchmarkEchoGRPC(b *testing.B, listeAndServeFn func(net.Listener, *tls.Con
 				b.Fatal(err)
 			}
 		},
-		func(echoMsg string) string {
-			resp, err := client.Echo(context.Background(), &EchoRequest{Msg: echoMsg})
+		func() func(string) string {
+			return func(echoMsg string) string {
+				resp, err := client.Echo(context.Background(), &EchoRequest{Msg: echoMsg})
+				if err != nil {
+					b.Fatal(err)
+				}
+				return resp.Msg
+			}
+		},
+	)
+}
+
+func benchmarkEchoStreamGRPC(b *testing.B, listenAndServeFn func(net.Listener, *tls.Config) error, size int) {
+	var conn *grpc.ClientConn
+	var client EchoClient
+	benchmarkEcho(b, size, listenAndServeFn,
+		func(addr net.Addr) {
+			var err error
+			conn, err = grpc.Dial(addr.String(), grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)), grpc.WithBlock())
 			if err != nil {
 				b.Fatal(err)
 			}
-			return resp.Msg
+			client = NewEchoClient(conn)
+		},
+		func() {
+			if err := conn.Close(); err != nil {
+				b.Fatal(err)
+			}
+		},
+		func() func(string) string {
+			stream, err := client.StreamEcho(context.Background())
+			if err != nil {
+				b.Fatal(err)
+			}
+			return func(echoMsg string) string {
+				if err := stream.Send(&EchoRequest{Msg: echoMsg}); err != nil {
+					b.Fatal(err)
+				}
+				resp, err := stream.Recv()
+				if err != nil {
+					b.Fatal(err)
+				}
+				return resp.Msg
+			}
 		},
 	)
 }
@@ -144,7 +207,7 @@ func benchmarkEchoGRPC(b *testing.B, listeAndServeFn func(net.Listener, *tls.Con
 
 func listenAndServeGRPCServe(listener net.Listener, _ *tls.Config) error {
 	grpcServer := grpc.NewServer()
-	RegisterEchoServer(grpcServer, &echoServer{})
+	RegisterEchoServer(grpcServer, new(echoServer))
 	return grpcServer.Serve(listener)
 }
 
@@ -156,15 +219,26 @@ func BenchmarkGRPCServe_64K(b *testing.B) {
 	benchmarkEchoGRPC(b, listenAndServeGRPCServe, 64<<10)
 }
 
+func BenchmarkGRPCServe_Stream_1K(b *testing.B) {
+	benchmarkEchoStreamGRPC(b, listenAndServeGRPCServe, 1<<10)
+}
+
+func BenchmarkGRPCServe_Stream_64k(b *testing.B) {
+	benchmarkEchoStreamGRPC(b, listenAndServeGRPCServe, 64<<10)
+}
+
 // ServeHTTP
 
 func listenAndServeGRPCServeHTTP(listener net.Listener, tlsConfig *tls.Config) error {
 	grpcServer := grpc.NewServer()
-	RegisterEchoServer(grpcServer, &echoServer{})
+	RegisterEchoServer(grpcServer, new(echoServer))
 	srv := http.Server{
 		TLSConfig: tlsConfig,
 		Handler:   grpcServer,
 	}
+
+	http2.ConfigureServer(&srv, nil)
+
 	return srv.Serve(listener)
 }
 
@@ -174,6 +248,14 @@ func BenchmarkGRPCServeHTTP_1K(b *testing.B) {
 
 func BenchmarkGRPCServeHTTP_64K(b *testing.B) {
 	benchmarkEchoGRPC(b, listenAndServeGRPCServeHTTP, 64<<10)
+}
+
+func BenchmarkGRPCServeHTTP_Stream_1K(b *testing.B) {
+	benchmarkEchoStreamGRPC(b, listenAndServeGRPCServeHTTP, 1<<10)
+}
+
+func BenchmarkGRPCServeHTTP_Stream_64k(b *testing.B) {
+	benchmarkEchoStreamGRPC(b, listenAndServeGRPCServeHTTP, 64<<10)
 }
 
 // gob-rpc
@@ -187,7 +269,7 @@ func (t *Echo) Echo(args *EchoRequest, reply *EchoResponse) error {
 
 func listenAndServeGobRPC(listener net.Listener, _ *tls.Config) error {
 	rpcServer := rpc.NewServer()
-	if err := rpcServer.Register(&Echo{}); err != nil {
+	if err := rpcServer.Register(new(Echo)); err != nil {
 		return err
 	}
 	for {
@@ -218,13 +300,15 @@ func benchmarkEchoGobRPC(b *testing.B, size int) {
 				b.Fatal(err)
 			}
 		},
-		func(echoMsg string) string {
-			args := EchoRequest{Msg: echoMsg}
-			reply := EchoResponse{}
-			if err := client.Call("Echo.Echo", &args, &reply); err != nil {
-				b.Fatal(err)
+		func() func(string) string {
+			return func(echoMsg string) string {
+				args := EchoRequest{Msg: echoMsg}
+				var reply EchoResponse
+				if err := client.Call("Echo.Echo", &args, &reply); err != nil {
+					b.Fatal(err)
+				}
+				return reply.Msg
 			}
-			return reply.Msg
 		},
 	)
 }
@@ -241,7 +325,7 @@ func BenchmarkGobRPC_64K(b *testing.B) {
 
 func listenAndServeProtoRPC(listener net.Listener, _ *tls.Config) error {
 	rpcServer := rpc.NewServer()
-	if err := rpcServer.Register(&Echo{}); err != nil {
+	if err := rpcServer.Register(new(Echo)); err != nil {
 		return err
 	}
 	for {
@@ -249,7 +333,8 @@ func listenAndServeProtoRPC(listener net.Listener, _ *tls.Config) error {
 		if err != nil {
 			return err
 		}
-		go rpcServer.ServeCodec(NewServerCodec(conn))
+
+		go ServeConn(conn)
 	}
 }
 
@@ -261,20 +346,22 @@ func benchmarkEchoProtoRPC(b *testing.B, size int) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			client = rpc.NewClientWithCodec(NewClientCodec(conn))
+			client = NewClient(conn)
 		},
 		func() {
 			if err := client.Close(); err != nil {
 				b.Fatal(err)
 			}
 		},
-		func(echoMsg string) string {
-			args := EchoRequest{Msg: echoMsg}
-			reply := EchoResponse{}
-			if err := client.Call("Echo.Echo", &args, &reply); err != nil {
-				b.Fatal(err)
+		func() func(string) string {
+			return func(echoMsg string) string {
+				args := EchoRequest{Msg: echoMsg}
+				var reply EchoResponse
+				if err := client.Call("Echo.Echo", &args, &reply); err != nil {
+					b.Fatal(err)
+				}
+				return reply.Msg
 			}
-			return reply.Msg
 		},
 	)
 }
@@ -307,7 +394,7 @@ func listenAndServeProtoHTTP(listener net.Listener, tlsConfig *tls.Config) error
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			args := EchoRequest{}
+			var args EchoRequest
 			if err := proto.Unmarshal(reqBody, &args); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
@@ -335,33 +422,35 @@ func benchmarkEchoProtoHTTP(b *testing.B, size int, accept func(net.Listener, *t
 			url = fmt.Sprintf("https://%s", addr)
 		},
 		nil,
-		func(echoMsg string) string {
-			args := EchoRequest{Msg: echoMsg}
-			reqBody, err := proto.Marshal(&args)
-			if err != nil {
-				b.Fatal(err)
+		func() func(string) string {
+			return func(echoMsg string) string {
+				args := EchoRequest{Msg: echoMsg}
+				reqBody, err := proto.Marshal(&args)
+				if err != nil {
+					b.Fatal(err)
+				}
+				req, err := http.NewRequest("POST", url, bytes.NewReader(reqBody))
+				if err != nil {
+					b.Fatal(err)
+				}
+				req.Header.Set("Content-Type", xProtobuf)
+				resp, err := roundTripper.RoundTrip(req)
+				if err != nil {
+					b.Fatal(err)
+				}
+				respBody, err := ioutil.ReadAll(resp.Body)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if err := resp.Body.Close(); err != nil {
+					b.Fatal(err)
+				}
+				var reply EchoResponse
+				if err := proto.Unmarshal(respBody, &reply); err != nil {
+					b.Fatal(err)
+				}
+				return reply.Msg
 			}
-			req, err := http.NewRequest("POST", url, bytes.NewReader(reqBody))
-			if err != nil {
-				b.Fatal(err)
-			}
-			req.Header.Set("Content-Type", xProtobuf)
-			resp, err := roundTripper.RoundTrip(req)
-			if err != nil {
-				b.Fatal(err)
-			}
-			respBody, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				b.Fatal(err)
-			}
-			if err := resp.Body.Close(); err != nil {
-				b.Fatal(err)
-			}
-			reply := EchoResponse{}
-			if err := proto.Unmarshal(respBody, &reply); err != nil {
-				b.Fatal(err)
-			}
-			return reply.Msg
 		},
 	)
 }
@@ -378,16 +467,6 @@ func BenchmarkProtoHTTP1_1K(b *testing.B) {
 
 func BenchmarkProtoHTTP1_64K(b *testing.B) {
 	benchmarkEchoProtoHTTP1(b, 64<<10)
-}
-
-func init() {
-	grpc.EnableTracing = false
-	devNull, err := os.Open(os.DevNull)
-	if err != nil {
-		log.Fatal(err)
-	}
-	// http2 logs a lot of junk.
-	log.SetOutput(devNull)
 }
 
 func benchmarkEchoProtoHTTP2(b *testing.B, size int) {
