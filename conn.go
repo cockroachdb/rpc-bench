@@ -59,7 +59,7 @@ func (c *baseConn) sendFrame(data []byte) error {
 	// Allocate enough space for the biggest uvarint
 	size := c.frameBuf[:]
 
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		n := binary.PutUvarint(size, uint64(0))
 		return c.write(c.w, size[:n])
 	}
