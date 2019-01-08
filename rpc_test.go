@@ -77,10 +77,10 @@ func benchmarkEcho(b *testing.B, size int, accept func(net.Listener, *tls.Config
 		}
 	}()
 
-	errChan := make(chan error)
 	go func() {
-		errChan <- accept(listener, tlsConfig)
-		close(errChan)
+		if err := accept(listener, tlsConfig); err != nil && !strings.HasSuffix(err.Error(), "use of closed network connection") {
+			b.Fatal(err)
+		}
 	}()
 
 	if setup != nil {
@@ -106,12 +106,6 @@ func benchmarkEcho(b *testing.B, size int, accept func(net.Listener, *tls.Config
 
 	if teardown != nil {
 		teardown()
-	}
-
-	for err := range errChan {
-		if err != nil && !strings.HasSuffix(err.Error(), "use of closed network connection") {
-			b.Fatal(err)
-		}
 	}
 }
 
