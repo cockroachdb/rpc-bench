@@ -19,6 +19,7 @@ package rpcbench
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io/ioutil"
@@ -31,8 +32,6 @@ import (
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
-	"golang.org/x/net/context"
-	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -68,6 +67,8 @@ func benchmarkEcho(b *testing.B, size int, accept func(net.Listener, *tls.Config
 
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{cert},
+		// Enable HTTP/2.
+		NextProtos: []string{"h2"},
 	}
 
 	listener = tls.NewListener(listener, tlsConfig)
@@ -236,8 +237,6 @@ func listenAndServeGRPCServeHTTP(listener net.Listener, tlsConfig *tls.Config) e
 		TLSConfig: tlsConfig,
 		Handler:   grpcServer,
 	}
-
-	http2.ConfigureServer(&srv, nil)
 
 	return srv.Serve(listener)
 }
@@ -410,8 +409,6 @@ func listenAndServeProtoHTTP(listener net.Listener, tlsConfig *tls.Config) error
 		}),
 	}
 
-	http2.ConfigureServer(&srv, nil)
-
 	return srv.Serve(listener)
 }
 
@@ -458,6 +455,8 @@ func benchmarkEchoProtoHTTP(b *testing.B, size int, accept func(net.Listener, *t
 func benchmarkEchoProtoHTTP1(b *testing.B, size int) {
 	benchmarkEchoProtoHTTP(b, size, listenAndServeProtoHTTP, &http.Transport{
 		TLSClientConfig: clientTLSConfig,
+		// Disable HTTP/2.
+		TLSNextProto: make(map[string]func(string, *tls.Conn) http.RoundTripper),
 	})
 }
 
@@ -470,8 +469,9 @@ func BenchmarkProtoHTTP1_64K(b *testing.B) {
 }
 
 func benchmarkEchoProtoHTTP2(b *testing.B, size int) {
-	benchmarkEchoProtoHTTP(b, size, listenAndServeProtoHTTP, &http2.Transport{
-		TLSClientConfig: clientTLSConfig,
+	benchmarkEchoProtoHTTP(b, size, listenAndServeProtoHTTP, &http.Transport{
+		TLSClientConfig:   clientTLSConfig,
+		ForceAttemptHTTP2: true,
 	})
 }
 
