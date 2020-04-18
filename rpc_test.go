@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"net/rpc"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
@@ -71,16 +72,21 @@ func benchmarkEcho(b *testing.B, size int, accept func(net.Listener, *tls.Config
 
 	listener = tls.NewListener(listener, tlsConfig)
 
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		if err := accept(listener, tlsConfig); err != nil && !strings.HasSuffix(err.Error(), "use of closed network connection") {
+			b.Error(err)
+		}
+	}()
+	defer wg.Wait()
+
 	defer func() {
 		if err := listener.Close(); err != nil {
 			b.Fatal(err)
 		}
-	}()
-
-	errChan := make(chan error)
-	go func() {
-		errChan <- accept(listener, tlsConfig)
-		close(errChan)
 	}()
 
 	if setup != nil {
@@ -106,12 +112,6 @@ func benchmarkEcho(b *testing.B, size int, accept func(net.Listener, *tls.Config
 
 	if teardown != nil {
 		teardown()
-	}
-
-	for err := range errChan {
-		if err != nil && !strings.HasSuffix(err.Error(), "use of closed network connection") {
-			b.Fatal(err)
-		}
 	}
 }
 
