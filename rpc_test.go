@@ -398,7 +398,7 @@ func listenAndServeProtoHTTP(listener net.Listener, tlsConfig *tls.Config) error
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			reply := EchoResponse{Msg: args.Msg}
+			reply := EchoResponse(args)
 			respBody, err := proto.Marshal(&reply)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)

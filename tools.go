@@ -20,4 +20,5 @@ package rpcbench
 import (
 	_ "github.com/gogo/protobuf/protoc-gen-gogofaster"
 	_ "golang.org/x/perf/cmd/benchstat"
+	_ "honnef.co/go/tools/cmd/staticcheck"
 )
