@@ -180,8 +180,8 @@ func (c *serverCodec) readRequestBody(r *bufio.Reader, header *RequestHeader,
 // ServeConn runs the Protobuf-RPC server on a single connection.
 // ServeConn blocks, serving the connection until the client hangs up.
 // The caller typically invokes ServeConn in a go statement.
-func ServeConn(conn io.ReadWriteCloser) {
-	rpc.ServeCodec(NewServerCodec(conn))
+func ServeConn(server *rpc.Server, conn io.ReadWriteCloser) {
+	server.ServeCodec(NewServerCodec(conn))
 }
 
 type marshalTo interface {

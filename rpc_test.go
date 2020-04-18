@@ -334,7 +334,7 @@ func listenAndServeProtoRPC(listener net.Listener, _ *tls.Config) error {
 			return err
 		}
 
-		go ServeConn(conn)
+		go ServeConn(rpcServer, conn)
 	}
 }
 
