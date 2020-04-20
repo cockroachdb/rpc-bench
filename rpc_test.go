@@ -19,6 +19,7 @@ package rpcbench
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io/ioutil"
@@ -27,11 +28,10 @@ import (
 	"net/http"
 	"net/rpc"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
-	"golang.org/x/net/context"
-	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -67,20 +67,27 @@ func benchmarkEcho(b *testing.B, size int, accept func(net.Listener, *tls.Config
 
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{cert},
+		// Enable HTTP/2.
+		NextProtos: []string{"h2"},
 	}
 
 	listener = tls.NewListener(listener, tlsConfig)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		if err := accept(listener, tlsConfig); err != nil && !strings.HasSuffix(err.Error(), "use of closed network connection") {
+			b.Error(err)
+		}
+	}()
+	defer wg.Wait()
 
 	defer func() {
 		if err := listener.Close(); err != nil {
 			b.Fatal(err)
 		}
-	}()
-
-	errChan := make(chan error)
-	go func() {
-		errChan <- accept(listener, tlsConfig)
-		close(errChan)
 	}()
 
 	if setup != nil {
@@ -106,12 +113,6 @@ func benchmarkEcho(b *testing.B, size int, accept func(net.Listener, *tls.Config
 
 	if teardown != nil {
 		teardown()
-	}
-
-	for err := range errChan {
-		if err != nil && !strings.HasSuffix(err.Error(), "use of closed network connection") {
-			b.Fatal(err)
-		}
 	}
 }
 
@@ -237,8 +238,6 @@ func listenAndServeGRPCServeHTTP(listener net.Listener, tlsConfig *tls.Config) e
 		Handler:   grpcServer,
 	}
 
-	http2.ConfigureServer(&srv, nil)
-
 	return srv.Serve(listener)
 }
 
@@ -334,7 +333,7 @@ func listenAndServeProtoRPC(listener net.Listener, _ *tls.Config) error {
 			return err
 		}
 
-		go ServeConn(conn)
+		go ServeConn(rpcServer, conn)
 	}
 }
 
@@ -399,7 +398,7 @@ func listenAndServeProtoHTTP(listener net.Listener, tlsConfig *tls.Config) error
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			reply := EchoResponse{Msg: args.Msg}
+			reply := EchoResponse(args)
 			respBody, err := proto.Marshal(&reply)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -409,8 +408,6 @@ func listenAndServeProtoHTTP(listener net.Listener, tlsConfig *tls.Config) error
 			w.Write(respBody)
 		}),
 	}
-
-	http2.ConfigureServer(&srv, nil)
 
 	return srv.Serve(listener)
 }
@@ -458,6 +455,8 @@ func benchmarkEchoProtoHTTP(b *testing.B, size int, accept func(net.Listener, *t
 func benchmarkEchoProtoHTTP1(b *testing.B, size int) {
 	benchmarkEchoProtoHTTP(b, size, listenAndServeProtoHTTP, &http.Transport{
 		TLSClientConfig: clientTLSConfig,
+		// Disable HTTP/2.
+		TLSNextProto: make(map[string]func(string, *tls.Conn) http.RoundTripper),
 	})
 }
 
@@ -470,8 +469,9 @@ func BenchmarkProtoHTTP1_64K(b *testing.B) {
 }
 
 func benchmarkEchoProtoHTTP2(b *testing.B, size int) {
-	benchmarkEchoProtoHTTP(b, size, listenAndServeProtoHTTP, &http2.Transport{
-		TLSClientConfig: clientTLSConfig,
+	benchmarkEchoProtoHTTP(b, size, listenAndServeProtoHTTP, &http.Transport{
+		TLSClientConfig:   clientTLSConfig,
+		ForceAttemptHTTP2: true,
 	})
 }
 
